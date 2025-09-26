@@ -1,206 +1,186 @@
-# PAN-Number-Validation-Dataset-SQL
+# 🆔 PAN Number Validation Project – PostgreSQL  
+## 📖 Overview  
+This project focuses on cleaning, validating, and categorising Permanent Account Numbers (PAN) of Indian nationals using **PostgreSQL**.  
+The goal is to ensure each PAN number follows the **official government format** and is categorised as either **Valid** or **Invalid** after a set of stringent checks.  
 
--- -----------------------------------------------------------
---  PAN NUMBER VALIDATION PROJECT (PostgreSQL)
---  File: pan_validation.sql
--- -----------------------------------------------------------
+It also demonstrates **data cleaning techniques**, **pattern validation** with PostgreSQL functions, and **summary reporting**.
 
--- 1) Create raw table to hold incoming PAN values
-CREATE TABLE IF NOT EXISTS sgt_pan_numbers_dataset (
-    pan_number text
-);
+---
 
+## 🗂️ Dataset Description  
+- **Source**: https://techtfq.com/blog/pan-card-validation-in-sql-real-world-data-cleaning-amp-validation-project
+- **Number of Records**: As per provided dataset  
+- **Column**:  
+  - `PAN_NUMBER` – Text field containing PAN values  
 
--- 2) (Optional) Insert some test rows to try the logic quickly
---    You can COMMENT OUT these inserts when running on your real dataset.
-INSERT INTO sgt_pan_numbers_dataset (pan_number) VALUES
-('ABCDE1234F'),
-('AABCD1234E'),
-('VWXYZ1234A'),
-('abcde1234f'),
-('  ABCDE1234F  '),
-('1234567890'),
-(NULL),
-(''),
-('AZZZZ1111B'),
-('MNOPQ1234Z'),
-('XYZAB1234K'),
-('AAAAA1111A'); -- add any more for testing
+### 📌 PAN Official Format Rules
+A valid PAN:  
+- Has **exactly 10 characters**  
+- **Format**: `AAAAA1234A`  
+  - First 5 characters → Alphabets (A–Z) in uppercase  
+    - No adjacent letters can be the same (e.g., `AABCD` ❌)  
+    - Not in a sequential order like `ABCDE` ❌  
+  - Next 4 characters → Digits (0–9)  
+    - No adjacent digits can be the same (`1123` ❌)  
+    - Not sequential like `1234` ❌  
+  - Last character → Alphabet (A–Z) in uppercase  
 
+---
 
--- 3) Basic exploration queries
+## 🧹 Data Cleaning Performed  
+- Removed **leading/trailing spaces**  
+- Converted all entries to **uppercase**  
+- Removed **duplicate PAN numbers**  
+- Handled **missing / NULL** PAN numbers  
+- Filtered out **empty strings**  
 
--- how many records loaded
-SELECT COUNT(*) AS total_records FROM sgt_pan_numbers_dataset;
+---
 
--- show NULL or empty pan_numbers
-SELECT * FROM sgt_pan_numbers_dataset
- WHERE pan_number IS NULL
-    OR trim(pan_number) = '';
+## 🎯 Objectives  
+- Validate each PAN number against government rules  
+- Categorise into:
+  - **Valid PAN** ✅  
+  - **Invalid PAN** ❌  
+- Generate a **summary report** showing:  
+  - Total records processed  
+  - Valid PAN count  
+  - Invalid PAN count  
+  - Missing or unprocessed PAN count  
 
--- duplicates (exact raw values)
-SELECT pan_number, COUNT(*) AS cnt
-FROM sgt_pan_numbers_dataset
-GROUP BY pan_number
-HAVING COUNT(*) > 1
-ORDER BY cnt DESC;
+---
 
+## 🛠️ Tools & Technologies Used  
+- **SQL Dialect**: PostgreSQL  
+- **Platform**: pgAdmin  
+- **Other Tools**:  
+  - Excel → Initial data storage & inspection  
+  - CSV → Used for database import  
 
--- 4) Check for leading/trailing spaces (rows where TRIM changes value)
+---
+
+## 🔍 Key Steps in Implementation  
+
+**1️⃣ Data Cleaning – Removing Extra Spaces & Converting to Uppercase**  
+```sql
 SELECT *
-FROM sgt_pan_numbers_dataset
-WHERE pan_number IS NOT NULL
-  AND pan_number <> trim(pan_number);
+FROM PAN_DATA
+WHERE PAN_NUMBER != UPPER(TRIM(PAN_NUMBER));
+```
 
+**2️⃣ Removing Duplicates**  
+```sql
+SELECT PAN_NUMBER, COUNT(*)
+FROM PAN_DATA
+GROUP BY PAN_NUMBER
+HAVING COUNT(*) > 1;
+```
 
--- 5) Check for lowercase (rows where UPPER changes value)
-SELECT *
-FROM sgt_pan_numbers_dataset
-WHERE pan_number IS NOT NULL
-  AND pan_number <> upper(pan_number);
+**3️⃣ Storing Cleaned Data**  
+```sql
+CREATE TABLE PAN_CHECK_DATA AS
+SELECT DISTINCT UPPER(TRIM(PAN_NUMBER)) AS PAN_ID
+FROM PAN_DATA
+WHERE PAN_NUMBER IS NOT NULL
+  AND TRIM(PAN_NUMBER) <> '';
+```
 
-
--- 6) Create a cleaned set (distinct, trimmed, uppercased, remove null/empty)
---    This can be a materialized table or a view. Here we create a cleaned table.
-DROP TABLE IF EXISTS sgt_pan_numbers_cleaned;
-CREATE TABLE sgt_pan_numbers_cleaned AS
-SELECT DISTINCT upper(trim(pan_number)) AS pan_number
-FROM sgt_pan_numbers_dataset
-WHERE pan_number IS NOT NULL
-  AND trim(pan_number) <> '';
-
--- add an index for fast lookups (optional)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sgt_pan_cleaned_pan ON sgt_pan_numbers_cleaned (pan_number);
-
-
--- 7) Create PL/pgSQL functions for checks
---    a) function to detect any adjacent identical characters (e.g., "AABCD" -> true)
-CREATE OR REPLACE FUNCTION fn_check_adjacent_characters(p_str text)
-RETURNS boolean
-LANGUAGE plpgsql
-AS $$
+**4️⃣ PAN Validation Function**  
+```sql
+CREATE OR REPLACE FUNCTION IS_VALID_PAN(PAN_ID TEXT) RETURNS BOOLEAN AS $$
 DECLARE
-    i int;
-    s_len int;
+    letter_part TEXT;
+    digit_part TEXT;
+    i INT;
+    is_seq BOOLEAN := TRUE;
 BEGIN
-    IF p_str IS NULL THEN
-        RETURN false;
+    -- Basic regex format check
+    IF pan_id !~ '^[A-Z]{5}[0-9]{4}[A-Z]$' THEN
+        RETURN FALSE;
     END IF;
 
-    s_len := char_length(p_str);
-    IF s_len < 2 THEN
-        RETURN false;
-    END IF;
+    -- Extract parts
+    letter_part := substring(pan_id from 1 for 5);
+    digit_part  := substring(pan_id from 6 for 4);
 
-    FOR i IN 1..(s_len - 1) LOOP
-        IF substr(p_str, i, 1) = substr(p_str, i + 1, 1) THEN
-            RETURN true; -- found adjacent repetition
+    -- Check adjacent same letters
+    FOR i IN 1..4 LOOP
+        IF substring(letter_part, i, 1) = substring(letter_part, i + 1, 1) THEN
+            RETURN FALSE;
         END IF;
     END LOOP;
 
-    RETURN false;
-END;
-$$;
+    -- Check sequential letters
+    is_seq := TRUE;
+    FOR i IN 1..4 LOOP
+        IF ascii(substring(letter_part, i + 1, 1)) != ascii(substring(letter_part, i, 1)) + 1 THEN
+            is_seq := FALSE;
+            EXIT;
+        END IF;
+    END LOOP;
+    IF is_seq THEN RETURN FALSE; END IF;
 
-
---    b) function to detect if all adjacent characters are strictly sequential
---       (e.g., "ABCDE" -> true, "1234" -> true, "AXDGE" -> false)
-CREATE OR REPLACE FUNCTION fn_check_sequential_characters(p_str text)
-RETURNS boolean
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    i int;
-    s_len int;
-BEGIN
-    IF p_str IS NULL THEN
-        RETURN false;
-    END IF;
-
-    s_len := char_length(p_str);
-    IF s_len < 2 THEN
-        RETURN false;
-    END IF;
-
-    FOR i IN 1..(s_len - 1) LOOP
-        IF ascii(substr(p_str, i + 1, 1)) - ascii(substr(p_str, i, 1)) <> 1 THEN
-            RETURN false; -- not a full sequence
+    -- Check adjacent same digits
+    FOR i IN 1..3 LOOP
+        IF substring(digit_part, i, 1) = substring(digit_part, i + 1, 1) THEN
+            RETURN FALSE;
         END IF;
     END LOOP;
 
-    RETURN true; -- all adjacent increments by 1
+    -- Check sequential digits
+    is_seq := TRUE;
+    FOR i IN 1..3 LOOP
+        IF cast(substring(digit_part, i + 1, 1) AS INT) != cast(substring(digit_part, i, 1) AS INT) + 1 THEN
+            is_seq := FALSE;
+            EXIT;
+        END IF;
+    END LOOP;
+    IF is_seq THEN RETURN FALSE; END IF;
+
+    RETURN TRUE;
 END;
-$$;
+$$ LANGUAGE PLPGSQL IMMUTABLE;
+```
 
+**5️⃣ Categorisation into Valid & Invalid PAN**  
+```sql
+SELECT PAN_ID,
+       CASE WHEN IS_VALID_PAN(PAN_ID) THEN 'Valid Pan'
+            ELSE 'Invalid Pan'
+       END AS STATUS
+FROM PAN_CHECK_DATA;
+```
 
--- Quick function tests (run and inspect)
-SELECT fn_check_adjacent_characters('AABCD') AS adj_AABCD;  -- expected true
-SELECT fn_check_adjacent_characters('ABCDE') AS adj_ABCDE;  -- expected false
-SELECT fn_check_sequential_characters('ABCDE') AS seq_ABCDE; -- expected true
-SELECT fn_check_sequential_characters('1234') AS seq_1234;   -- expected true
-SELECT fn_check_sequential_characters('AXDGE') AS seq_AXDGE; -- expected false
-
-
--- 8) Regex check: valid PAN pattern is 5 letters, 4 digits, 1 letter
---    Show rows that satisfy pattern
-SELECT pan_number
-FROM sgt_pan_numbers_cleaned
-WHERE pan_number ~ '^[A-Z]{5}[0-9]{4}[A-Z]$';
-
-
--- 9) Build a view that classifies each cleaned PAN as Valid / Invalid
---    Validation rules used (example):
---      - matches regex ^[A-Z]{5}[0-9]{4}[A-Z]$
---      - no adjacent identical characters anywhere
---      - first 5 characters not fully sequential (e.g., "ABCDE")
---      - middle 4 digits not fully sequential (e.g., "1234")  -- optional rule
-DROP VIEW IF EXISTS vw_valid_invalid_pans;
-CREATE OR REPLACE VIEW vw_valid_invalid_pans AS
-WITH cte_cleaned AS (
-    SELECT pan_number
-    FROM sgt_pan_numbers_cleaned
+**6️⃣ Summary Report**  
+```sql
+WITH VALIDATION_STATUS AS (
+    SELECT PAN_ID,
+           CASE WHEN IS_VALID_PAN(PAN_ID) THEN 'Valid Pan'
+                ELSE 'Invalid Pan'
+           END AS STATUS
+    FROM PAN_CHECK_DATA
 ),
-cte_valid AS (
-    SELECT pan_number
-    FROM cte_cleaned
-    WHERE pan_number ~ '^[A-Z]{5}[0-9]{4}[A-Z]$'
-      AND fn_check_adjacent_characters(pan_number) = false
-      /* Check first 5 letters not sequential */
-      AND fn_check_sequential_characters(substr(pan_number, 1, 5)) = false
-      /* OPTIONAL: check middle 4 digits not sequential (uncomment if desired) */
-      AND fn_check_sequential_characters(substr(pan_number, 6, 4)) = false
+COUNTS AS (
+    SELECT (SELECT COUNT(*) FROM PAN_DATA) AS TOTAL_RECORDS_PROCESSED,
+           (SELECT COUNT(*) FROM VALIDATION_STATUS WHERE STATUS = 'Valid Pan') AS TOTAL_VALID_PANS,
+           (SELECT COUNT(*) FROM VALIDATION_STATUS WHERE STATUS = 'Invalid Pan') AS TOTAL_INVALID_PANS
 )
-SELECT c.pan_number,
-       CASE WHEN v.pan_number IS NOT NULL THEN 'Valid PAN' ELSE 'Invalid PAN' END AS status
-FROM cte_cleaned c
-LEFT JOIN cte_valid v USING (pan_number);
+SELECT C.TOTAL_RECORDS_PROCESSED,
+       C.TOTAL_VALID_PANS,
+       C.TOTAL_INVALID_PANS,
+       C.TOTAL_RECORDS_PROCESSED - (C.TOTAL_VALID_PANS + C.TOTAL_INVALID_PANS) AS MISSING_OR_UNPROCESSED
+FROM COUNTS C;
+```
+📦 PAN_Validation_PostgreSQL  
+├── 📄 PAN NUMBER.sql
+├── 📄 Project_scripts.txt
+├── 📄 Problem Statement.pdf 
+├── 📄 PAN Number Validation Dataset.csv 
+└── 📜 README.md  
 
+## 🚀 How to Run the Project  
+1. Clone the repository  
+2. Create a PostgreSQL database  
+3. Import the CSV file into the `PAN_DATA` table  
+4. Run `Project_Pan.sql` in **pgAdmin**  
+5. Review the summary report & validation results  
 
--- 10) Query view
-SELECT * FROM vw_valid_invalid_pans ORDER BY pan_number LIMIT 50;
-
-
--- 11) Summary report (counts)
-WITH summary AS (
-    SELECT
-      (SELECT COUNT(*) FROM sgt_pan_numbers_dataset) AS total_raw_records,
-      (SELECT COUNT(*) FROM sgt_pan_numbers_cleaned) AS total_cleaned_records,
-      (SELECT COUNT(*) FROM vw_valid_invalid_pans WHERE status = 'Valid PAN') AS total_valid_pans,
-      (SELECT COUNT(*) FROM vw_valid_invalid_pans WHERE status = 'Invalid PAN') AS total_invalid_pans
-)
-SELECT
-    total_raw_records,
-    total_cleaned_records,
-    total_valid_pans,
-    total_invalid_pans,
-    (total_cleaned_records - (total_valid_pans + total_invalid_pans)) AS total_unclassified_after_cleaning
-FROM summary;
-
-
--- 12) Export results (server-side) to CSV (requires server filesystem access)
---    Example: COPY (SELECT * FROM vw_valid_invalid_pans) TO '/tmp/pan_validation_result.csv' CSV HEADER;
---    If you run from psql client, use \copy to export to client machine:
---    \copy (SELECT * FROM vw_valid_invalid_pans) TO 'pan_validation_result.csv' CSV HEADER;
-
--- 13) Helpful maintenance: drop test data (optional)
---    TRUNCATE sgt_pan_numbers_dataset;
