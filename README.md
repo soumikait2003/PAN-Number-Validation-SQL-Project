@@ -169,14 +169,15 @@ SELECT C.TOTAL_RECORDS_PROCESSED,
        C.TOTAL_INVALID_PANS,
        C.TOTAL_RECORDS_PROCESSED - (C.TOTAL_VALID_PANS + C.TOTAL_INVALID_PANS) AS MISSING_OR_UNPROCESSED
 FROM COUNTS C;
-```
-📦 PAN_Validation_PostgreSQL  
+
+\`\`\`
+📦 PAN_Validation_PostgreSQL
 ├── 📄 PAN NUMBER.sql
 ├── 📄 Project_scripts.txt
+├── 📄 PAN Number Validation Dataset.csv
 ├── 📄 Problem Statement.pdf 
-├── 📄 PAN Number Validation Dataset.csv 
-└── 📜 README.md  
-```
+└── 📜 README.md
+\`\`\`
 
 ## 🚀 How to Run the Project  
 1. Clone the repository  
